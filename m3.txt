@@ -1,4 +1,4 @@
-############################4 cong
+##########################4 cong
 
 if(isPageReplacmentAlgorithmFIFO())
 		{
