@@ -1,0 +1,139 @@
+6 cong##########################################
+
+		if(isPageReplacmentAlgorithmLRU(PG_REP_LRU_LISTS_APPROX))
+		{
+			//TODO: [PROJECT'23.MS3 - #2] [1] PAGE FAULT HANDLER - LRU Replacement
+			// Write your code here, remove the panic and write your code
+			//panic("page_fault_handler() LRU Replacement is not implemented yet...!!");
+			// placement
+			fault_va = ROUNDDOWN(fault_va,PAGE_SIZE);
+
+			if((LIST_SIZE(&(curenv->ActiveList)) + LIST_SIZE(&(curenv->SecondList))) < curenv->page_WS_max_size){
+
+				if(LIST_SIZE(&(curenv->ActiveList)) < curenv->ActiveListSize)
+				{
+
+					struct WorkingSetElement *wse = NULL;
+					LIST_FOREACH(wse, &(curenv->SecondList))
+					{
+						if(ROUNDDOWN(wse->virtual_address,PAGE_SIZE) == fault_va){
+							LIST_REMOVE(&(curenv->SecondList),wse);
+							LIST_INSERT_HEAD(&(curenv->ActiveList), wse);
+							pt_set_page_permissions(curenv->env_page_directory, wse->virtual_address, PERM_PRESENT , 0);
+							return;
+						}
+					}
+						struct FrameInfo *ptrframe;
+						allocate_frame(&ptrframe);
+						map_frame(curenv->env_page_directory, ptrframe, fault_va,  PERM_USER | PERM_PRESENT | PERM_WRITEABLE);
+						int ret = pf_read_env_page(curenv, (void*)(fault_va));
+						if(ret == E_PAGE_NOT_EXIST_IN_PF){
+							if(!((fault_va >= USER_HEAP_START && fault_va < USER_HEAP_MAX) || (fault_va >= USTACKBOTTOM && fault_va < USTACKTOP))){
+								unmap_frame(curenv->env_page_directory,fault_va);
+								cprintf("6");
+								sched_kill_env(curenv->env_id);
+							}
+						}
+						struct WorkingSetElement *ptr_element = env_page_ws_list_create_element(curenv,ROUNDDOWN(fault_va,PAGE_SIZE));
+						ptr_element->time_stamp = 0;
+						LIST_INSERT_HEAD(&(curenv->ActiveList), ptr_element);
+						pt_set_page_permissions(curenv->env_page_directory, ptr_element->virtual_address, PERM_PRESENT , 0);
+				}
+
+				else if((LIST_SIZE(&(curenv->ActiveList)) == curenv->ActiveListSize) && (LIST_SIZE(&(curenv->SecondList)) < curenv->SecondListSize)){
+
+					struct WorkingSetElement *wse = NULL;
+					LIST_FOREACH(wse, &(curenv->SecondList))
+					{
+						if(ROUNDDOWN(wse->virtual_address,PAGE_SIZE) == fault_va){
+							struct WorkingSetElement* ptr_last_a = LIST_LAST(&(curenv->ActiveList));
+							LIST_REMOVE(&(curenv->SecondList),wse);
+							LIST_REMOVE(&(curenv->ActiveList),ptr_last_a);
+							LIST_INSERT_HEAD(&(curenv->SecondList), ptr_last_a);
+							pt_set_page_permissions(curenv->env_page_directory, ptr_last_a->virtual_address, 0 , PERM_PRESENT);
+							LIST_INSERT_HEAD(&(curenv->ActiveList), wse);
+							pt_set_page_permissions(curenv->env_page_directory, wse->virtual_address, PERM_PRESENT , 0);
+							return;
+						}
+					}
+						struct FrameInfo *ptrframe;
+						allocate_frame(&ptrframe);
+						map_frame(curenv->env_page_directory, ptrframe, fault_va,  PERM_USER | PERM_PRESENT | PERM_WRITEABLE);
+						int ret = pf_read_env_page(curenv, (void*)(fault_va));
+						if(ret == E_PAGE_NOT_EXIST_IN_PF){
+							if(!((fault_va >= USER_HEAP_START && fault_va < USER_HEAP_MAX) || (fault_va >= USTACKBOTTOM && fault_va < USTACKTOP))){
+								unmap_frame(curenv->env_page_directory,fault_va);
+								cprintf("7");
+								sched_kill_env(curenv->env_id);
+							}
+						}
+
+						struct WorkingSetElement *ptr_element = env_page_ws_list_create_element(curenv,ROUNDDOWN(fault_va,PAGE_SIZE));
+						ptr_element->time_stamp = 0;
+						struct WorkingSetElement* ptr_last_a = LIST_LAST(&(curenv->ActiveList));
+						LIST_REMOVE(&(curenv->ActiveList),ptr_last_a);
+						LIST_INSERT_HEAD(&(curenv->SecondList), ptr_last_a);
+						pt_set_page_permissions(curenv->env_page_directory, ptr_last_a->virtual_address, 0 , PERM_PRESENT);
+						LIST_INSERT_HEAD(&(curenv->ActiveList), ptr_element);
+						pt_set_page_permissions(curenv->env_page_directory, ptr_element->virtual_address, PERM_PRESENT , 0);
+				}
+			}
+
+			//TODO: [PROJECT'23.MS3 - BONUS] [1] PAGE FAULT HANDLER - O(1) implementation of LRU replacement
+			// replacement
+			else{
+
+				struct WorkingSetElement *wse = NULL;
+				LIST_FOREACH(wse, &(curenv->SecondList))
+				{
+					if(ROUNDDOWN(wse->virtual_address,PAGE_SIZE) == fault_va){
+
+					struct WorkingSetElement* ptr_last_a = LIST_LAST(&(curenv->ActiveList));
+					LIST_REMOVE(&(curenv->ActiveList),ptr_last_a);
+					LIST_REMOVE(&(curenv->SecondList),wse);
+					LIST_INSERT_HEAD(&(curenv->ActiveList), wse);
+					pt_set_page_permissions(curenv->env_page_directory, wse->virtual_address, PERM_PRESENT , 0);
+					LIST_INSERT_HEAD(&(curenv->SecondList), ptr_last_a);
+					pt_set_page_permissions(curenv->env_page_directory, ptr_last_a->virtual_address, 0 , PERM_PRESENT);
+
+					return;
+				}
+			}
+			//not found in 2nd list////////////
+
+			struct WorkingSetElement *victim = LIST_LAST(&(curenv->SecondList));
+			uint32 page_permissions = pt_get_page_permissions(curenv->env_page_directory, victim->virtual_address);
+			if((page_permissions & PERM_MODIFIED) == PERM_MODIFIED){
+				uint32 *ptr_table = NULL;
+				struct FrameInfo *ptrframe = get_frame_info(curenv->env_page_directory, victim->virtual_address, &ptr_table);
+				int res = pf_update_env_page(curenv, victim->virtual_address, ptrframe);
+				if(res == E_NO_PAGE_FILE_SPACE){
+					panic("No Free Pages In Disk..!!");
+				}
+			}
+			env_page_ws_invalidate(curenv, victim->virtual_address);
+
+			struct FrameInfo *ptrframe;
+			allocate_frame(&ptrframe);
+			map_frame(curenv->env_page_directory, ptrframe, fault_va,  PERM_USER | PERM_PRESENT | PERM_WRITEABLE);
+
+			int ret = pf_read_env_page(curenv, (void*)(fault_va));
+			if(ret == E_PAGE_NOT_EXIST_IN_PF){
+				if(!((fault_va >= USER_HEAP_START && fault_va < USER_HEAP_MAX) || (fault_va >= USTACKBOTTOM && fault_va < USTACKTOP))){
+					unmap_frame(curenv->env_page_directory,fault_va);
+					cprintf("8");
+					sched_kill_env(curenv->env_id);
+				}
+			}
+			struct WorkingSetElement *ptr_element = env_page_ws_list_create_element(curenv,fault_va);
+			ptr_element->time_stamp = 0;
+			struct WorkingSetElement* ptr_last_a = LIST_LAST(&(curenv->ActiveList));
+			struct WorkingSetElement* ptr_last_b = LIST_LAST(&(curenv->ActiveList));
+
+			LIST_REMOVE(&(curenv->ActiveList),ptr_last_a);
+			LIST_INSERT_HEAD(&(curenv->SecondList), ptr_last_b);
+			pt_set_page_permissions(curenv->env_page_directory, ptr_last_a->virtual_address, 0 , PERM_PRESENT);
+			LIST_INSERT_HEAD(&(curenv->ActiveList),ptr_element);
+			pt_set_page_permissions(curenv->env_page_directory, ptr_element->virtual_address, PERM_PRESENT , 0);
+			}
+	}
